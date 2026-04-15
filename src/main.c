@@ -1,20 +1,20 @@
 #include <stdio.h>
 #include "stack.h"
-#include "analyzer.h"
+#include "memory_map.h"
 
-void vulnerable(){
-	char buffer[16];
-	printf("Enter input: ");
-	scanf("%s", buffer);
+void trigger_trace() {
+    walk_stack();
 }
 
-void trigger_trace(){
-	walk_stack();
-}
+int main() {
+    char input[64];
 
-int main(){
-	vulnerable();
-	trigger_trace();
-	return 0;
+    load_memory_map();
 
+    printf("Enter input: ");
+    fgets(input, sizeof(input), stdin);
+
+    trigger_trace();
+
+    return 0;
 }

@@ -1,19 +1,40 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "analyzer.h"
+#include "memory_map.h"
 
-#define LOW_ADDR_BOUND 0X400000
-#define HIGH_ADDR_BOUND 0x7fffffffffff
+void analyze_frame(void *return_addr, void *current_rbp, void *next_rbp) {
+    uintptr_t addr = (uintptr_t)return_addr;
+    uintptr_t rbp = (uintptr_t)current_rbp;
+    uintptr_t next = (uintptr_t)next_rbp;
 
-void analyze_frame(void *return_addr) {
-	uintptr_t addr = (uintptr_t)return_addr;
+    memory_region_t *region = find_region(addr);
 
-	if(addr < LOW_ADDR_BOUND || addr > HIGH_ADDR_BOUND) {
-		printf(" [WARNING] Suspicious return address: %p\n", return_addr);
+    // Classificação da região
+    if (region) {
+        printf(" [%s]", region->is_executable ? "EXEC" : "NON-EXEC");
 
-	}
+        if (region->name[0]) {
+            printf(" (%s)", region->name);
+        }
+    } else {
+        printf(" [UNKNOWN]");
+    }
 
-	if(addr % 8 != 0) {
-		printf(" [WARNING] Unaligned return address: %p\n", return_addr);
-	}
+    // Validação executável
+    if (!region || !region->is_executable) {
+        printf("\n  [WARNING] Return address outside executable region");
+    }
+
+    // Validação de encadeamento
+    if (next <= rbp) {
+        printf("\n  [WARNING] Broken stack frame chain");
+    }
+
+    // Validação de stack bounds
+    if (rbp < stack_start || rbp > stack_end) {
+        printf("\n  [WARNING] RBP outside stack bounds");
+    }
+
+    printf("\n");
 }
