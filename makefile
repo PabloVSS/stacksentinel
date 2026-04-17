@@ -5,20 +5,21 @@
 
 CC = gcc
 
-# Cores para feedback visual no terminal (ANSI)
+# Cores ANSI
 CYAN  = \033[0;36m
 GREEN = \033[0;32m
 RED   = \033[0;31m
-YELLOW = \033[0;33m
+YELLOW= \033[0;33m
 BOLD  = \033[1m
-NC    = \033[0m # No Color
+NC    = \033[0m
 
-# Configurações de Compilação
-# -fno-omit-frame-pointer: Essencial para o unwinding manual via RBP
-# -no-pie: Facilita a leitura de endereços fixos em demonstrações
+# Flags
 CFLAGS_COMMON = -Wall -Wextra -g -Iinclude
 CFLAGS_DEBUG  = -fno-omit-frame-pointer -no-pie
 CFLAGS        = $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
+
+# Flags opcionais (debug avançado)
+CFLAGS_SEC    = -fstack-protector-all -D_FORTIFY_SOURCE=2
 LDFLAGS       = -ldl
 
 # Diretórios
@@ -27,7 +28,7 @@ EX_DIR  = examples
 BUILD   = build
 BIN     = $(BUILD)/bin
 
-# Alvos (Binários)
+# Binários
 TARGET      = $(BIN)/sentinel
 VULN_BIN    = $(BIN)/vulnerable
 SAFE_BIN    = $(BIN)/safe
@@ -36,86 +37,115 @@ UNSAFE_BIN  = $(BIN)/vulnerable_unsafe
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
 
 # ==============================================================================
-# REGRAS DE CONSTRUÇÃO
+# BUILD
 # ==============================================================================
 
 all: build_dirs $(TARGET) examples
 
-$(TARGET): $(SRC_FILES)
-	@echo -e "$(CYAN)[BUILD]$(NC) StackSentinel Core"
+$(TARGET): $(SRC_FILES) | build_dirs
+	@printf "$(CYAN)[BUILD]$(NC) StackSentinel Core\n"
 	@$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 examples: $(VULN_BIN) $(SAFE_BIN) $(UNSAFE_BIN)
 
-$(VULN_BIN): $(EX_DIR)/vulnerable.c
-	@echo -e "$(CYAN)[BUILD]$(NC) Vulnerable (Protected)"
+$(VULN_BIN): $(EX_DIR)/vulnerable.c | build_dirs
+	@printf "$(CYAN)[BUILD]$(NC) Vulnerable (Protected)\n"
+	@$(CC) $(CFLAGS) $(CFLAGS_SEC) $< -o $@
+
+$(SAFE_BIN): $(EX_DIR)/safe.c | build_dirs
+	@printf "$(CYAN)[BUILD]$(NC) Safe Execution Example\n"
 	@$(CC) $(CFLAGS) $< -o $@
 
-$(SAFE_BIN): $(EX_DIR)/safe.c
-	@echo -e "$(CYAN)[BUILD]$(NC) Safe Execution Example"
-	@$(CC) $(CFLAGS) $< -o $@
-
-$(UNSAFE_BIN): $(EX_DIR)/vulnerable.c
-	@echo -e "$(CYAN)[BUILD]$(NC) $(RED)Vulnerable (UNPROTECTED)$(NC)"
+$(UNSAFE_BIN): $(EX_DIR)/vulnerable.c | build_dirs
+	@printf "$(CYAN)[BUILD]$(NC) $(RED)Vulnerable (UNPROTECTED)$(NC)\n"
 	@$(CC) $(CFLAGS) -fno-stack-protector -z execstack $< -o $@
-	@echo -e "$(RED)[!] Warning: Built $(notdir $@) sem proteções de stack (Canary/NX)$(NC)"
+	@printf "$(RED)[!] Warning: Built %s sem proteções de stack (Canary/NX)$(NC)\n" "$(notdir $@)"
 
 # ==============================================================================
-# PIPELINE DE AUDITORIA AUTOMATIZADA
+# PIPELINE DE AUDITORIA
 # ==============================================================================
 
-# Roda todos os cenários possíveis e explica as soluções
 test-full: all vuln-unprotected
-	@echo -e "\n$(BOLD)============================================================$(NC)"
-	@echo -e "$(BOLD)      STACKSENTINEL: RELATÓRIO DE AUDITORIA DE MEMÓRIA      $(NC)"
-	@echo -e "$(BOLD)============================================================$(NC)"
+	@printf "\n$(BOLD)============================================================$(NC)\n"
+	@printf "$(BOLD)      STACKSENTINEL: RELATÓRIO DE AUDITORIA DE MEMÓRIA      $(NC)\n"
+	@printf "$(BOLD)============================================================$(NC)\n"
 
-	@echo -e "\n$(GREEN)[CENÁRIO 1] Execução Nominal (Segura)$(NC)"
-	@echo -e "Descrição: Entrada dentro dos limites. Nenhuma corrupção detectada."
+	@printf "\n$(GREEN)[CENÁRIO 1] Execução Nominal (Segura)$(NC)\n"
+	@printf "Descrição: Entrada dentro dos limites. Nenhuma corrupção detectada.\n"
 	@echo "pablo" | $(SAFE_BIN)
-	@echo -e "$(GREEN)>> Resultado: Memória íntegra. Entrada sanitizada.$(NC)"
+	@printf "$(GREEN)>> Resultado: Memória íntegra. Entrada sanitizada.$(NC)\n"
 
-	@echo -e "\n$(RED)[CENÁRIO 2] Vulnerabilidade de Overflow (Padrão 0x41)$(NC)"
-	@echo -e "Descrição: Injeção de 128 'A's em buffer de 16 bytes."
+	@printf "\n$(RED)[CENÁRIO 2] Vulnerabilidade de Overflow (Padrão 0x41)$(NC)\n"
+	@printf "Descrição: Injeção de 128 'A's em buffer de 16 bytes.\n"
 	@python3 -c "print('A' * 128)" | $(UNSAFE_BIN) || \
-	echo -e "$(YELLOW)[!] Alerta de Kernel: SIGSEGV Detectado (Stack Smashing)$(NC)"
-	@echo -e "\n$(CYAN)>> DISPARANDO ANÁLISE FORENSE (Sentinel):$(NC)"
-	@$(TARGET)
-	@echo -e "$(GREEN)>> Solução Sugerida: Validar tamanho de input (fgets/strncpy).$(NC)"
+	printf "$(YELLOW)[!] SIGSEGV detectado (Stack Smashing)$(NC)\n"
 
-	@echo -e "\n$(RED)[CENÁRIO 3] Estouro de Larga Escala (300 Bytes)$(NC)"
-	@echo -e "Descrição: Sobrescrita total de RBP e RIP com padrão 'B'."
+	@printf "\n$(CYAN)>> DISPARANDO ANÁLISE FORENSE (Sentinel):$(NC)\n"
+	@$(TARGET)
+
+	@printf "$(GREEN)>> Solução: Validar tamanho de input (fgets/strncpy).$(NC)\n"
+
+	@printf "\n$(RED)[CENÁRIO 3] Estouro de Larga Escala (300 Bytes)$(NC)\n"
+	@printf "Descrição: Sobrescrita massiva da stack com padrão 'B'.\n"
 	@python3 -c "print('B' * 300)" | $(UNSAFE_BIN) || \
-	echo -e "$(YELLOW)[!] Alerta de Kernel: SIGSEGV Detectado$(NC)"
-	@echo -e "\n$(CYAN)>> DISPARANDO ANÁLISE FORENSE (Sentinel):$(NC)"
-	@$(TARGET)
-	@echo -e "$(GREEN)>> Solução Sugerida: Habilitar -fstack-protector-all no GCC.$(NC)"
+	printf "$(YELLOW)[!] SIGSEGV detectado$(NC)\n"
 
-	@echo -e "\n$(BOLD)============================================================$(NC)"
-	@echo -e "$(BOLD)             FIM DA AUDITORIA AUTOMATIZADA                  $(NC)"
-	@echo -e "$(BOLD)============================================================$(NC)\n"
+	@printf "\n$(CYAN)>> DISPARANDO ANÁLISE FORENSE (Sentinel):$(NC)\n"
+	@$(TARGET)
+
+	@printf "$(GREEN)>> Solução: Habilitar -fstack-protector-all.$(NC)\n"
+
+	@printf "\n$(BOLD)============================================================$(NC)\n"
+	@printf "$(BOLD)             FIM DA AUDITORIA AUTOMATIZADA                  $(NC)\n"
+	@printf "$(BOLD)============================================================$(NC)\n"
 
 # ==============================================================================
-# TESTES UNITÁRIOS / INDIVIDUAIS
+# TESTES
 # ==============================================================================
 
 test-analysis: vuln-unprotected $(TARGET)
-	@echo -e "\n$(BOLD)>>> SIMULANDO ATAQUE DE 300 BYTES...$(NC)"
+	@printf "\n$(BOLD)>>> SIMULANDO ATAQUE DE 300 BYTES...$(NC)\n"
 	@python3 -c "print('A' * 300)" | $(UNSAFE_BIN) || \
-	echo -e "$(RED)[!] STATUS: Binário interrompido por SIGSEGV$(NC)"
-	@echo -e "\n$(BOLD)>>> EXECUTANDO INTROSPECÇÃO FORENSE...$(NC)"
+	printf "$(RED)[!] STATUS: SIGSEGV$(NC)\n"
+
+	@printf "\n$(BOLD)>>> EXECUTANDO INTROSPECÇÃO...$(NC)\n"
 	@$(TARGET)
 
 test-safe: $(SAFE_BIN)
-	@echo -e "\n$(GREEN)[TEST]$(NC) Safe execution"
+	@printf "\n$(GREEN)[TEST]$(NC) Safe execution\n"
 	@echo "safe input" | $(SAFE_BIN)
 
 # ==============================================================================
-# UTILITÁRIOS
+# GDB ANALYSIS - FORÇA OVERFLOW REAL + INSPEÇÃO DE STACK
+# ==============================================================================
+gdb-vuln: $(UNSAFE_BIN)
+	@printf "$(YELLOW)[GDB] Execução com controle real de overflow$(NC)\n"
+
+	@python3 -c "print('A'*600)" > /tmp/payload.txt
+
+	@gdb -q $(UNSAFE_BIN) \
+		-ex "set pagination off" \
+		-ex "set breakpoint pending on" \
+		-ex "break vulnerable_function" \
+		-ex "break *vulnerable_function+40" \
+		-ex "run < /tmp/payload.txt" \
+		-ex "printf \"\n>>> [ANTES DO INPUT]\n\"" \
+		-ex "info frame" \
+		-ex "info registers" \
+		-ex "x/32gx \$$rsp" \
+		-ex "continue" \
+		-ex "printf \"\n>>> [APÓS gets() - STACK AO VIVO]\n\"" \
+		-ex "info registers" \
+		-ex "bt" \
+		-ex "x/64gx \$$rsp" \
+		-ex "quit"
+		
+# ==============================================================================
+# UTIL
 # ==============================================================================
 
 clean:
-	@echo -e "$(RED)[CLEAN]$(NC) Removing build directory"
+	@printf "$(RED)[CLEAN]$(NC) Removing build directory\n"
 	@rm -rf $(BUILD)
 
 build_dirs:
@@ -123,4 +153,5 @@ build_dirs:
 
 vuln-unprotected: build_dirs $(UNSAFE_BIN)
 
-.PHONY: all clean examples build_dirs vuln-unprotected test-analysis test-full-audit test-safe
+.PHONY: all clean examples build_dirs vuln-unprotected \
+        test-analysis test-full test-safe gdb-vuln
